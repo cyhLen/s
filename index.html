@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>江陵网 v1.0.1 (纯原生弹窗版)</title>
+    <style>
+        /* 页面只显示浅灰色背景，无任何内容 */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        html, body {
+            width: 100%;
+            height: 100%;
+            background-color: #f0f0f0; /* 浅灰色背景 */
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <script>
+        MathJax = {
+            tex: {
+                inlineMath: [['$', '$'], ['\\(', '\\)']],
+                displayMath: [['$$', '$$'], ['\\[', '\\]']]
+            }
+        };
+    </script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+</head>
+<body>
+    <script>
+        (function() {
+            // ========== 纯原生弹窗交互 ==========
+            
+            // ========== Cookie操作函数 ==========
+            function setCookie(name, value, days = 30) {
+                const expires = new Date();
+                expires.setTime(expires.getTime() + (days * 24 * 60 * 60 * 1000));
+                document.cookie = `${name}=${encodeURIComponent(JSON.stringify(value))};expires=${expires.toUTCString()};path=/`;
+            }
+            
+            function getCookie(name) {
+                const nameEQ = name + "=";
+                const ca = document.cookie.split(';');
+                for(let i = 0; i < ca.length; i++) {
+                    let c = ca[i];
+                    while (c.charAt(0) === ' ') c = c.substring(1, c.length);
+                    if (c.indexOf(nameEQ) === 0) {
+                        return JSON.parse(decodeURIComponent(c.substring(nameEQ.length, c.length)));
+                    }
+                }
+                return null;
+            }
+            
+            function deleteCookie(name) {
+                document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`;
+            }
+            
+            // ========== 密码加密 ==========
+            function encryptPassword(password, key) {
+                let encrypted = '';
+                for (let i = 0; i < password.length; i++) {
+                    encrypted += String.fromCharCode(password.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+                }
+                return btoa(encrypted);
+            }
+            
+            function decryptPassword(encryptedPassword, key) {
+                try {
+                    const decoded = atob(encryptedPassword);
+                    let decrypted = '';
+                    for (let i = 0; i < decoded.length; i++) {
+                        decrypted += String.fromCharCode(decoded.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+                    }
+                    return decrypted;
+                } catch (e) {
+                    return '';
+                }
+            }
+            
+            // ========== 账户管理 ==========
+            let loginHistory = [];
+            
+            // 显示登录历史
+            function showLoginHistory() {
+                if (loginHistory.length === 0) {
+                    alert('暂无登录历史');
+                    return;
+                }
+                
+                let historyText = '📋 登录历史：\n\n';
+                loginHistory.forEach((item, index) => {
+                    historyText += `${index + 1}. ${item.username}`;
+                    if (item.encryptedPassword) historyText += ' 🔒';
+                    if (item.autoLogin) historyText += ' ⚡';
+                    historyText += `\n   ${item.lastLogin || ''}\n\n`;
+                });
+                historyText += '请输入序号选择用户，或输入0返回';
+                
+                const choice = prompt(historyText, '');
+                
+                if (choice === null || choice === '0') {
+                    showLogin();
+                    return;
+                }
+                
+                const index = parseInt(choice) - 1;
+                if (index >= 0 && index < loginHistory.length) {
+                    selectUser(loginHistory[index].username);
+                } else {
+                    alert('无效序号');
+                    showLoginHistory();
+                }
+            }
+            
+            // 选择用户
+            function selectUser(username) {
+                const userRecord = loginHistory.find(item => item.username === username);
+                if (userRecord && userRecord.encryptedPassword) {
+                    const encryptionKey = username + "MSYK_SECRET_KEY";
+                    const password = decryptPassword(userRecord.encryptedPassword, encryptionKey);
+                    window.tempLoginData = { username, password };
+                    alert(`已选择用户: ${username}`);
+                } else {
+                    window.tempLoginData = { username, password: '' };
+                    alert(`已选择用户: ${username} (无密码)`);
+                }
+                showLogin();
+            }
+            
+            // 删除历史记录
+            function deleteHistory(index) {
+                if (confirm('确定删除这条记录？')) {
+                    loginHistory.splice(index, 1);
+                    setCookie('loginHistory', loginHistory);
+                    alert('已删除');
+                }
+            }
+            
+            // 清除所有历史
+            function clearAllHistory() {
+                if (loginHistory.length === 0) {
+                    alert('无历史记录');
+                    return;
+                }
+                
+                if (confirm('确定清除所有历史记录？')) {
+                    loginHistory = [];
+                    deleteCookie('loginHistory');
+                    deleteCookie('autoLoginUser');
+                    alert('已清除所有历史');
+                }
+            }
+            
+            // 历史记录管理菜单
+            function manageHistory() {
+                if (loginHistory.length === 0) {
+                    alert('暂无登录历史');
+                    showLogin();
+                    return;
+                }
+                
+                let menu = '📋 历史记录管理\n\n';
+                loginHistory.forEach((item, index) => {
+                    menu += `${index + 1}. ${item.username}`;
+                    if (item.encryptedPassword) menu += ' 🔒';
+                    menu += '\n';
+                });
+                menu += '\n操作选项：\n';
+                menu += '1. 选择用户\n';
+                menu += '2. 删除单个\n';
+                menu += '3. 清除所有\n';
+                menu += '0. 返回登录';
+                
+                const choice = prompt(menu, '');
+                
+                if (choice === null || choice === '0') {
+                    showLogin();
+                    return;
+                }
+                
+                switch(choice) {
+                    case '1': {
+                        const idx = prompt('请输入要选择的用户序号:', '');
+                        const i = parseInt(idx) - 1;
+                        if (i >= 0 && i < loginHistory.length) {
+                            selectUser(loginHistory[i].username);
+                        } else {
+                            alert('无效序号');
+                            manageHistory();
+                        }
+                        break;
+                    }
+                    case '2': {
+                        const idx = prompt('请输入要删除的用户序号:', '');
+                        const i = parseInt(idx) - 1;
+                        if (i >= 0 && i < loginHistory.length) {
+                            deleteHistory(i);
+                            manageHistory();
+                        } else {
+                            alert('无效序号');
+                            manageHistory();
+                        }
+                        break;
+                    }
+                    case '3':
+                        clearAllHistory();
+                        showLogin();
+                        break;
+                    default:
+                        alert('无效选项');
+                        manageHistory();
+                }
+            }
+            
+            // 初始化历史记录
+            loginHistory = getCookie('loginHistory') || [];
+            
+            // ========== 请求函数 ==========
+            function request(url, method = 'GET', headers = {}, params = {}) {
+                return new Promise((resolve, reject) => {
+                    const requestBody = {
+                        fromurl: url,
+                        method: method.toUpperCase(),
+                        head: {
+                            'Content-Type': 'application/json',
+                            ...headers
+                        }
+                    };
+                    
+                    if (method.toUpperCase() === 'GET' && Object.keys(params).length > 0) {
+                        const query = new URLSearchParams(params).toString();
+                        requestBody.fromurl = `${url}${url.includes('?') ? '&' : '?'}${query}`;
+                    } else if (Object.keys(params).length > 0) {
+                        requestBody.data = params;
+                    }
+                    
+                    fetch('https://open.apisql.cn/api/lingyan/proxyseewo', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(requestBody)
+                    })
+                    .then(response => response.json())
+                    .then(data => resolve(data))
+                    .catch(error => reject(error));
+                });
+            }
+            
+            // ========== 下载文件 ==========
+            function downloadFromUrl(url, filename) {
+                if (confirm(`是否下载文件：${filename}？`)) {
+                    fetch(url)
+                        .then(response => response.blob())
+                        .then(blob => {
+                            const blobUrl = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = blobUrl;
+                            a.download = filename || 'download';
+                            document.body.appendChild(a);
+                            a.click();
+                            setTimeout(() => {
+                                document.body.removeChild(a);
+                                URL.revokeObjectURL(blobUrl);
+                            }, 100);
+                            alert('下载已开始');
+                        })
+                        .catch(() => alert('下载失败'));
+                }
+            }
+            
+            // ========== 全局变量 ==========
+            let headers = {
+                "x-app-code": "easiclass-android",
+                "x-app-version": "2.2.7.4266",
+                "Content-Type": "application/json; charset=UTF-8",
+            };
+            
+            let token = '';
+            let studentId = '';
+            let unitId = '';
+            let tasksCache = []; // 缓存作业列表
+            
+            // ========== 登录界面 ==========
+            function showLogin() {
+                const defaultUsername = window.tempLoginData?.username || '';
+                
+                let menu = '🔐 江陵网登录\n\n';
+                menu += '1. 直接登录\n';
+                menu += '2. 历史记录管理\n';
+                menu += '3. 退出\n\n';
+                menu += `当前用户: ${defaultUsername || '未选择'}`;
+                
+                const choice = prompt(menu, '1');
+                
+                if (choice === null) {
+                    alert('已退出，按F2重新打开');
+                    return;
+                }
+                
+                switch(choice) {
+                    case '1':
+                        doLoginPrompt();
+                        break;
+                    case '2':
+                        manageHistory();
+                        break;
+                    case '3':
+                        alert('已退出，按F2重新打开');
+                        break;
+                    default:
+                        alert('无效选项');
+                        showLogin();
+                }
+            }
+            
+            // 登录输入
+            function doLoginPrompt() {
+                const defaultUsername = window.tempLoginData?.username || '';
+                const defaultPassword = window.tempLoginData?.password || '';
+                
+                const username = prompt('请输入用户名:', defaultUsername);
+                if (username === null) {
+                    showLogin();
+                    return;
+                }
+                
+                const password = prompt('请输入密码:', defaultPassword);
+                if (password === null) {
+                    showLogin();
+                    return;
+                }
+                
+                const remember = confirm('是否记住账号密码？\n确定→记住\n取消→不记住');
+                let autoLogin = false;
+                if (remember) {
+                    autoLogin = confirm('是否自动登录？\n确定→自动登录\n取消→仅记住');
+                }
+                
+                window.pendingLogin = { username, password, remember, autoLogin };
+                doLogin(username, password);
+            }
+            
+            // ========== 登录逻辑 ==========
+            async function doLogin(username, password) {
+                alert('登录中，请稍候...');
+                
+                const password2 = CryptoJS.MD5(password).toString();
+                
+                try {
+                    const data = await request(
+                        "https://class.seewo.com/api/security/v1/auth/login",
+                        "POST",
+                        headers,
+                        { username, password: password2 }
+                    );
+                    
+                    if (data.code === 0) {
+                        token = data.data.token;
+                        headers['x-auth-token'] = token;
+                        studentId = data.data.user.uid;
+                        unitId = data.data.user.unitId;
+                        
+                        if (window.pendingLogin?.remember) {
+                            const encryptionKey = username + "MSYK_SECRET_KEY";
+                            const encryptedPassword = encryptPassword(password, encryptionKey);
+                            
+                            const existingIndex = loginHistory.findIndex(item => item.username === username);
+                            const userData = {
+                                username,
+                                lastLogin: new Date().toLocaleString(),
+                                autoLogin: window.pendingLogin.autoLogin,
+                                rememberMe: true,
+                                encryptedPassword
+                            };
+                            
+                            if (existingIndex !== -1) {
+                                loginHistory[existingIndex] = userData;
+                            } else {
+                                loginHistory.unshift(userData);
+                            }
+                            
+                            if (loginHistory.length > 10) loginHistory = loginHistory.slice(0, 10);
+                            setCookie('loginHistory', loginHistory);
+                            
+                            if (window.pendingLogin.autoLogin) {
+                                setCookie('autoLoginUser', { username, timestamp: Date.now() });
+                            }
+                        }
+                        
+                        alert(`登录成功！欢迎 ${data.data.user.realName}`);
+                        await fetchHomeworkList();
+                    } else {
+                        alert(`登录失败：${data.msg || '未知错误'}`);
+                        showLogin();
+                    }
+                } catch (error) {
+                    alert('网络错误，请重试');
+                    showLogin();
+                }
+            }
+            
+            // ========== 获取作业列表 ==========
+            async function fetchHomeworkList() {
+                try {
+                    alert('正在获取作业列表...');
+                    
+                    const data = await request(
+                        "https://class.seewo.com/api/course/v1/tasks/student?page=0&size=100",
+                        "GET",
+                        headers
+                    );
+                    
+                    tasksCache = data.data.content || [];
+                    showHomeworkListMenu();
+                    
+                } catch (error) {
+                    alert('获取作业列表失败');
+                    showLogin();
+                }
+            }
+            
+            // ========== 作业列表菜单 ==========
+            function showHomeworkListMenu() {
+                if (tasksCache.length === 0) {
+                    alert('暂无作业');
+                    showLogin();
+                    return;
+                }
+                
+                let listText = `📚 作业列表 (共${tasksCache.length}个)\n\n`;
+                tasksCache.forEach((task, index) => {
+                    listText += `${index + 1}. ${task.taskName}\n`;
+                    listText += `   科目: ${task.subjectName || '未知'}\n`;
+                    listText += `   ID: ${task.taskId}\n\n`;
+                });
+                listText += '请选择操作：\n';
+                listText += '1. 输入序号查看作业\n';
+                listText += '2. 输入作业ID直接查看\n';
+                listText += '0. 返回登录';
+                
+                const choice = prompt(listText, '');
+                
+                if (choice === null || choice === '0') {
+                    showLogin();
+                    return;
+                }
+                
+                switch(choice) {
+                    case '1':
+                        showHomeworkByIndex();
+                        break;
+                    case '2':
+                        showHomeworkById();
+                        break;
+                    default:
+                        alert('无效选项');
+                        showHomeworkListMenu();
+                }
+            }
+            
+            // 通过序号查看作业
+            function showHomeworkByIndex() {
+                const indexStr = prompt(`请输入作业序号 (1-${tasksCache.length}):`, '');
+                
+                if (indexStr === null) {
+                    showHomeworkListMenu();
+                    return;
+                }
+                
+                const index = parseInt(indexStr) - 1;
+                if (index >= 0 && index < tasksCache.length) {
+                    const task = tasksCache[index];
+                    fetchHomeworkDetail(task.taskId, task.taskName);
+                } else {
+                    alert('无效序号');
+                    showHomeworkByIndex();
+                }
+            }
+            
+            // 通过ID查看作业
+            function showHomeworkById() {
+                const taskId = prompt('请输入作业ID:', '');
+                
+                if (taskId === null) {
+                    showHomeworkListMenu();
+                    return;
+                }
+                
+                if (!taskId.trim()) {
+                    alert('作业ID不能为空');
+                    showHomeworkById();
+                    return;
+                }
+                
+                // 在缓存中查找作业名称
+                const task = tasksCache.find(t => t.taskId === taskId);
+                const taskName = task ? task.taskName : '未知作业';
+                
+                fetchHomeworkDetail(taskId, taskName);
+            }
+            
+            // ========== 获取作业详情 ==========
+            async function fetchHomeworkDetail(taskId, taskName) {
+                alert(`正在加载作业: ${taskName || taskId}`);
+                
+                try {
+                    // 获取材料文件
+                    const homeworkData = await request(
+                        `https://class.seewo.com/api/course/v1/tasks/${taskId}/student`,
+                        "GET",
+                        headers
+                    );
+                    
+                    // 获取答案
+                    let answersData = null;
+                    try {
+                        answersData = await request(
+                            `https://class.seewo.com/api/course/v1/tasks/${taskId}/answers/details`,
+                            "GET",
+                            headers
+                        );
+                    } catch (e) {
+                        // 可能没有答案
+                    }
+                    
+                    showHomeworkDetailMenu(taskId, taskName, homeworkData, answersData);
+                    
+                } catch (error) {
+                    alert('加载作业详情失败');
+                    showHomeworkListMenu();
+                }
+            }
+            
+            // ========== 作业详情菜单 ==========
+            function showHomeworkDetailMenu(taskId, taskName, homeworkData, answersData) {
+                let menu = `📄 ${taskName}\n\n`;
+                menu += '1. 查看材料文件\n';
+                menu += '2. 查看答案\n';
+                menu += '3. 返回列表\n';
+                menu += '0. 退出登录';
+                
+                const choice = prompt(menu, '1');
+                
+                if (choice === null) {
+                    showHomeworkListMenu();
+                    return;
+                }
+                
+                switch(choice) {
+                    case '1':
+                        showMaterialsMenu(taskId, homeworkData);
+                        break;
+                    case '2':
+                        showAnswersMenu(answersData, taskId, taskName, homeworkData);
+                        break;
+                    case '3':
+                        showHomeworkListMenu();
+                        break;
+                    case '0':
+                        showLogin();
+                        break;
+                    default:
+                        alert('无效选项');
+                        showHomeworkDetailMenu(taskId, taskName, homeworkData, answersData);
+                }
+            }
+            
+            // ========== 材料文件菜单 ==========
+            async function showMaterialsMenu(taskId, homeworkData) {
+                const materials = homeworkData.data.materials || [];
+                
+                if (materials.length === 0) {
+                    alert('无材料文件');
+                    showHomeworkDetailMenu(taskId, homeworkData.data.taskName, homeworkData, null);
+                    return;
+                }
+                
+                let materialText = '📎 材料文件列表\n\n';
+                materials.forEach((material, index) => {
+                    materialText += `${index + 1}. ${material.name}\n`;
+                });
+                materialText += '\n请输入序号选择文件，或输入0返回';
+                
+                const choice = prompt(materialText, '');
+                
+                if (choice === null || choice === '0') {
+                    showHomeworkDetailMenu(taskId, homeworkData.data.taskName, homeworkData, null);
+                    return;
+                }
+                
+                const index = parseInt(choice) - 1;
+                if (index >= 0 && index < materials.length) {
+                    await handleMaterialFile(taskId, homeworkData, materials[index], index);
+                } else {
+                    alert('无效序号');
+                    showMaterialsMenu(taskId, homeworkData);
+                }
+            }
+            
+            // ========== 处理单个材料文件 ==========
+            async function handleMaterialFile(taskId, homeworkData, material, index) {
+                try {
+                    alert('正在获取下载链接...');
+                    
+                    const linkData = await request(
+                        `https://class.seewo.com/api/course/v1/tasks/material/${material.uid}/link`,
+                        "GET",
+                        headers
+                    );
+                    
+                    const downloadUrl = linkData.data.downloadUrl;
+                    
+                    const action = prompt(
+                        `文件: ${material.name}\n\n链接:\n${downloadUrl}\n\n` +
+                        '操作选项：\n1. 复制链接\n2. 下载文件\n3. 返回列表\n0. 返回上级',
+                        '1'
+                    );
+                    
+                    if (action === null || action === '0') {
+                        showMaterialsMenu(taskId, homeworkData);
+                        return;
+                    }
+                    
+                    switch(action) {
+                        case '1':
+                            navigator.clipboard.writeText(downloadUrl).then(
+                                () => {
+                                    alert('链接已复制');
+                                    handleMaterialFile(taskId, homeworkData, material, index);
+                                },
+                                () => {
+                                    alert('复制失败');
+                                    handleMaterialFile(taskId, homeworkData, material, index);
+                                }
+                            );
+                            break;
+                        case '2':
+                            downloadFromUrl(downloadUrl, material.name);
+                            setTimeout(() => handleMaterialFile(taskId, homeworkData, material, index), 500);
+                            break;
+                        case '3':
+                            showHomeworkListMenu();
+                            break;
+                        default:
+                            alert('无效选项');
+                            handleMaterialFile(taskId, homeworkData, material, index);
+                    }
+                    
+                } catch (error) {
+                    alert('获取下载链接失败');
+                    showMaterialsMenu(taskId, homeworkData);
+                }
+            }
+            
+            // ========== 显示答案菜单 ==========
+            function showAnswersMenu(answersData, taskId, taskName, homeworkData) {
+                if (!answersData || !answersData.data || answersData.data.length === 0) {
+                    alert('无答案数据');
+                    showHomeworkDetailMenu(taskId, taskName, homeworkData, null);
+                    return;
+                }
+                
+                let answerText = '✅ 答案与解析\n\n';
+                answersData.data.forEach((item, index) => {
+                    const qNum = item.questionOrder + 1;
+                    answerText += `【第 ${qNum} 题】\n`;
+                    answerText += `答案: ${item.answer || '无'}\n`;
+                    answerText += `解析: ${item.explain || '无'}\n`;
+                    if (index < answersData.data.length - 1) answerText += '\n';
+                });
+                
+                alert(answerText);
+                
+                // 触发 MathJax 渲染（虽然这里没有DOM，但保留）
+                if (window.MathJax && MathJax.typesetPromise) {
+                    // 无DOM操作
+                }
+                
+                showHomeworkDetailMenu(taskId, taskName, homeworkData, answersData);
+            }
+            
+            // ========== 主入口 ==========
+            async function start() {
+                // 检查自动登录
+                const autoLoginUser = getCookie('autoLoginUser');
+                if (autoLoginUser) {
+                    const userRecord = loginHistory.find(item => item.username === autoLoginUser.username);
+                    if (userRecord && userRecord.encryptedPassword) {
+                        const encryptionKey = userRecord.username + "MSYK_SECRET_KEY";
+                        const password = decryptPassword(userRecord.encryptedPassword, encryptionKey);
+                        if (password) {
+                            window.tempLoginData = {
+                                username: userRecord.username,
+                                password: password
+                            };
+                            
+                            if (confirm(`检测到自动登录用户 ${userRecord.username}，是否立即登录？`)) {
+                                await doLogin(userRecord.username, password);
+                                return;
+                            }
+                        }
+                    }
+                }
+                
+                showLogin();
+            }
+            
+            // 键盘快捷键
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'F2') {
+                    e.preventDefault();
+                    start();
+                }
+            });
+            
+            // 启动
+            setTimeout(() => {
+                alert('🔔 按 F2 键打开系统');
+                start();
+            }, 100);
+            
+        })();
+    </script>
+</body>
+</html>
